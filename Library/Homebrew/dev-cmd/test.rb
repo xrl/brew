@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "abstract_command"
+require "download_queue"
 require "extend/ENV"
 require "sandbox"
 require "timeout"
@@ -74,6 +75,14 @@ module Homebrew
           env = ENV.to_hash
 
           begin
+            download_queue = DownloadQueue.new
+            begin
+              f.enqueue_resources_and_patches(download_queue:, test: true)
+              download_queue.fetch
+            ensure
+              download_queue.shutdown
+            end
+
             exec_args = Sandbox.ruby_command("test.rb", f.path, *args.options_only)
 
             exec_args << "--HEAD" if f.head?

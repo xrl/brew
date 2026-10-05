@@ -430,6 +430,8 @@ module Homebrew
 
         unless dependent_was_previously_installed
           build_args = []
+          fetch_args = ["--retry"]
+          fetch_args << "--test" if testable_dependents.include?(dependent)
 
           fetch_formulae = dependent_dependencies.reject(&:satisfied?).map(&:name)
 
@@ -441,14 +443,14 @@ module Homebrew
 
             build_args << "--build-from-source"
 
-            test "brew", "fetch", "--build-from-source", "--retry", dependent.full_name
+            test "brew", "fetch", "--build-from-source", *fetch_args, dependent.full_name
             return if steps.fetch(-1).failed?
           else
             fetch_formulae << dependent.full_name
           end
 
           if fetch_formulae.present?
-            test "brew", "fetch", "--retry", *fetch_formulae
+            test "brew", "fetch", *fetch_args, *fetch_formulae
             return if steps.fetch(-1).failed?
           end
 

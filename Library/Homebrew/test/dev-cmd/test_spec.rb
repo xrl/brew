@@ -10,6 +10,35 @@ RSpec.describe Homebrew::DevCmd::Test do
 
   it_behaves_like "parseable arguments"
 
+  it "fetches test resources before starting the test sandbox" do
+    cmd = described_class.new(["foo"])
+    foo = formula("foo") do
+      T.bind(self, T.class_of(Formula))
+      url "https://brew.sh/foo-1.0.tar.gz"
+
+      resource "fixture", :test do
+        url "https://brew.sh/fixture-1.0.tar.gz"
+      end
+
+      test do
+        true
+      end
+    end
+    allow(cmd.args.named).to receive(:to_resolved_formulae).and_return([foo])
+    allow(foo).to receive_messages(latest_version_installed?: true, linked?: true, recursive_dependencies: [])
+    allow(Utils::GemSetup).to receive(:install_bundler_gems!)
+    download_queue = instance_double(Homebrew::DownloadQueue, shutdown: nil)
+    allow(Homebrew::DownloadQueue).to receive(:new).and_return(download_queue)
+    events = []
+    allow(download_queue).to receive(:enqueue) { |resource| events << resource }
+    allow(download_queue).to receive(:fetch) { events << :fetch }
+    allow(Sandbox).to receive(:run_or_fork) { events << :sandbox }
+
+    cmd.run
+
+    expect(events).to eq([foo.resource("fixture"), :fetch, :sandbox])
+  end
+
   it "tests a given Formula without process-listing warnings", :integration_test do
     skip "Nested sandboxing is not supported." if Sandbox.nested_sandbox?
 
