@@ -25,12 +25,36 @@ api_curlrc_args() {
   fi
 }
 
+api_curl_supports_etag() {
+  if [[ -z "${API_CURL_SUPPORTS_ETAG:-}" ]]
+  then
+    local curl_version_output curl_name_and_version
+    curl_version_output="$(curl --version 2>/dev/null)"
+    curl_name_and_version="${curl_version_output%% (*}"
+    if [[ "$(numeric "${curl_name_and_version##* }")" -ge "$(numeric "7.68.0")" ]]
+    then
+      API_CURL_SUPPORTS_ETAG=1
+    else
+      API_CURL_SUPPORTS_ETAG=0
+    fi
+  fi
+
+  [[ "${API_CURL_SUPPORTS_ETAG}" == "1" ]]
+}
+
 api_time_cond_args() {
   local cache_path="$1"
+  local etag_path="$2"
 
   if [[ -s "${cache_path}" ]]
   then
-    echo "--time-cond"
-    echo "${cache_path}"
+    if [[ -n "${etag_path}" && -s "${etag_path}" ]]
+    then
+      echo "--etag-compare"
+      echo "${etag_path}"
+    else
+      echo "--time-cond"
+      echo "${cache_path}"
+    fi
   fi
 }

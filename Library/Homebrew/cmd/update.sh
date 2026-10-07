@@ -443,7 +443,16 @@ fetch_api_file() {
     echo "Checking if we need to fetch ${filename}..."
   fi
 
-  local arg curl_exit_code json_url last_json_url
+  local etag_path new_etag_path
+  local -a etag_args=()
+  if api_curl_supports_etag
+  then
+    etag_path="${cache_path}.etag"
+    new_etag_path="${cache_path}.etag.new"
+    etag_args=(--etag-save "${new_etag_path}" --write-out "%{http_code}")
+  fi
+
+  local arg curl_exit_code http_code json_url last_json_url
   local -a time_cond
   while read -r json_url
   do
@@ -451,19 +460,32 @@ fetch_api_file() {
     while read -r arg
     do
       time_cond+=("${arg}")
-    done < <(api_time_cond_args "${cache_path}")
-    api_curl_download "${json_url}" "${cache_path}" "${time_cond[@]}"
+    done < <(api_time_cond_args "${cache_path}" "${etag_path}")
+    [[ -n "${new_etag_path}" ]] && rm -f "${new_etag_path}"
+    http_code="$(api_curl_download "${json_url}" "${cache_path}" "${etag_args[@]}" "${time_cond[@]}")"
     curl_exit_code=$?
     # A conditional request can fail with a receive error (curl exit code 56) when
     # an unconditional request for the same URL succeeds, so retry exactly once.
     if [[ ${curl_exit_code} -eq 56 ]] && [[ ${#time_cond[@]} -gt 0 ]]
     then
-      api_curl_download "${json_url}" "${cache_path}"
+      http_code="$(api_curl_download "${json_url}" "${cache_path}" "${etag_args[@]}")"
       curl_exit_code=$?
     fi
     last_json_url="${json_url}"
     [[ ${curl_exit_code} -eq 0 ]] && break
   done < <(api_urls "${filename}")
+
+  if [[ -n "${new_etag_path}" ]]
+  then
+    if [[ ${curl_exit_code} -eq 0 && -s "${new_etag_path}" ]]
+    then
+      mv -f "${new_etag_path}" "${etag_path}"
+    elif [[ ${curl_exit_code} -eq 0 && "${http_code}" != "304" ]]
+    then
+      rm -f "${etag_path}"
+    fi
+    rm -f "${new_etag_path}"
+  fi
 
   if [[ -n ${is_formula_file} ]] && [[ -f "${api_cache}/formula_names.txt" ]]
   then
@@ -1078,6 +1100,7 @@ EOS
         "${HOMEBREW_CACHE}/api/internal/packages.$(bottle_tag).jws.json") ;;
         "${HOMEBREW_CACHE}/api/internal/packages.$(bottle_tag).jws.json.payload") ;;
         "${HOMEBREW_CACHE}/api/internal/packages.$(bottle_tag).jws.json.payload.index") ;;
+        "${HOMEBREW_CACHE}/api/internal/packages.$(bottle_tag).jws.json.etag") ;;
         *) rm -f "${f}" ;;
       esac
     done
